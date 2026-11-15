@@ -17,9 +17,9 @@ YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "").strip()
 SERPER_API_KEY = os.getenv("SERPER_API_KEY", "").strip()
 
 api_status = {
-    "youtube": "محفوظ بالذاكرة + متصل",
-    "serper": "غير مفعل",
-    "snapmap": "جاهز"
+    "youtube": "محفوظ بالذاكرة + مصفاة ذكية",
+    "serper": "متصل",
+    "snapmap": "مكتمل"
 }
 
 ALL_PLATFORMS_ORDER = [
@@ -27,23 +27,64 @@ ALL_PLATFORMS_ORDER = [
     "VK", "Telegram", "X", "Dailymotion", "Likee_Kwai", "Other"
 ]
 
+# الكلمات الدالة على مقبرة البقيع أو الدفن والجنائز بجميع اللغات
+BAQI_POSITIVE_WORDS = [
+    "بقيع", "البقيع", "الغرقد", "مقبر", "دفن", "جناز", "جنائز", "قبر", "قبور", "تشييع", "فجر",
+    "baqi", "baki", "baqee", "buqee", "jannatul", "jannat ul", "cemetery", "graveyard", "burial", "funeral", "grave",
+    "pemakaman", "makam", "kuburan", "penguburan", "jenazah", "pengebumian",
+    "بقیع", "تدفین", "قبرستان", "جنازہ", "میت", "خښول", "هديره",
+    "cennetül", "cennetul", "mezarlığı", "mezarligi", "kabristan", "defin", "cenaze",
+    "баки", "бақи", "бақеъ", "кладбище", "похороны", "qabriston", "dafn", "зираты", "қабристони",
+    "বাকি", "জান্নাতুল", "দাফন", "কবরস্থান",
+    "enterrement", "cimetière", "inhumation", "makaburi", "makabarta"
+]
+
+# الكلمات الدالة على الضوضاء والمقاطع غير المرتبطة (أنمي Baki، ألعاب، طبخ، تسوق، إلخ)
+NOISE_NEGATIVE_WORDS = [
+    "hanma", "grappler", "yujiro", "anime", "manga", "netflix", "episode", "season", "fight", "gym", "workout",
+    "gaming", "roblox", "pubg", "free fire", "minecraft", "fortnite", "edit", "amv",
+    "recipe", "cooking", "food", "restaurant", "hotel review", "shopping", "mall", "price", "discount",
+    "مسلسل", "حلقة", "فيلم", "أنمي", "انمي", "لعبة", "تحدي", "طبخ", "وصفة", "مطعم", "تسوق", "مول", "تفسير حلم", "تفسير الاحلام"
+]
+
 results_db = {}
 
+def compute_relevance(item):
+    """فحص ذكي لتحديد هل الفيديو مرتبط فعلياً بمقبرة البقيع/الدفن أم ضوضاء عشوائية"""
+    text = f"{item.get('title', '')} {item.get('snippet', '')} {item.get('lang', '')}".lower()
+
+    # استبعاد فوري إذا كان يحتوي على كلمات الضوضاء (مثل أنمي Baki Hanma أو ألعاب أو طبخ)
+    for nw in NOISE_NEGATIVE_WORDS:
+        if nw in text:
+            return "noise"
+
+    # إذا كان يحتوي صراحة على كلمات البقيع أو الدفن أو الجنازة
+    for pw in BAQI_POSITIVE_WORDS:
+        if pw in text:
+            return "strict"
+
+    # الفيديوهات الملتقطة بالإحداثيات القريبة جداً (300m أو 500m) نعتبرها مرتبطة
+    lang_tag = item.get("lang", "")
+    if "300m" in lang_tag or "500m" in lang_tag:
+        return "strict"
+
+    return "noise"
+
 def load_previous_results():
-    """تحميل جميع النتائج السابقة من الذاكرة التراكمية (2261+ فيديو)"""
+    """تحميل جميع النتائج السابقة وإعادة فحصها بالمصفاة الذكية"""
     if os.path.exists("results.json"):
         try:
             with open("results.json", "r", encoding="utf-8") as f:
                 old_list = json.load(f)
                 for item in old_list:
                     item["is_new"] = False
+                    item["relevance"] = compute_relevance(item)
                     results_db[item["url"]] = item
-            print(f"[*] تم تحميل {len(results_db)} نتيجة سابقة من الذاكرة.")
+            print(f"[*] تم تحميل وفحص {len(results_db)} نتيجة سابقة.")
         except Exception as e:
             print(f"[!] تنبيه عند قراءة الذاكرة السابقة: {e}")
 
 def decode_tiktok_timestamp(url):
-    """استخراج وقت الرفع الدقيق بالثانية من معرف فيديو تيك توك"""
     match = re.search(r"/video/(\d{19})", url)
     if match:
         vid_id = int(match.group(1))
@@ -107,9 +148,10 @@ def add_result(url, title, platform, lang, published_at, thumbnail="", snippet="
             results_db[clean_url]["tier"] = tier
         if thumbnail and not results_db[clean_url].get("thumbnail"):
             results_db[clean_url]["thumbnail"] = thumbnail
+        results_db[clean_url]["relevance"] = compute_relevance(results_db[clean_url])
         return
 
-    results_db[clean_url] = {
+    item = {
         "url": clean_url,
         "title": title or "مقطع فيديو مكتشف",
         "platform": platform,
@@ -120,6 +162,8 @@ def add_result(url, title, platform, lang, published_at, thumbnail="", snippet="
         "tier": tier,
         "is_new": True
     }
+    item["relevance"] = compute_relevance(item)
+    results_db[clean_url] = item
 
 def serper_request(query, label, endpoint="search", forced_platform=None):
     if not SERPER_API_KEY:
@@ -136,7 +180,7 @@ def serper_request(query, label, endpoint="search", forced_platform=None):
             timeout=15
         )
         if res.status_code == 200:
-            api_status["serper"] = "✅ متصل ويعمل بأعلى كفاءة"
+            api_status["serper"] = "✅ متصل (مصفاة الدقة العالية)"
             data = res.json()
             items = data.get("organic", []) if endpoint == "search" else data.get("videos", [])
             for item in items:
@@ -162,140 +206,99 @@ def serper_request(query, label, endpoint="search", forced_platform=None):
         print(f"[!] استثناء في اتصال Serper: {e}")
     return count_added
 
-def search_tiktok_deep_pages():
-    """1. التعمق في الصفحات الخلفية لقاعدة بيانات تيك توك (Cursors 60, 90, 120)"""
-    print("[*] 1/4 جاري التعمق في الصفحات الخلفية لـ TikTok...")
-    deep_keywords = [
-        "دفن في البقيع", "مقبرة البقيع", "جنازة البقيع", "بقيع الغرقد", "فجر البقيع",
-        "pemakaman baqi", "jannatul baqi", "makam baqi", "kuburan baqi", "جنت البقیع",
-        "بقیع قبرستان", "cennetül baki", "baki mezarlığı", "кладбище баки", "baqi qabristoni"
-    ]
-    for kw in deep_keywords:
-        for cursor in [60, 90, 120]:
-            try:
-                res = requests.post(
-                    "https://www.tikwm.com/api/feed/search",
-                    data={"keywords": kw, "count": 30, "cursor": cursor},
-                    headers={"User-Agent": "Mozilla/5.0"},
-                    timeout=12
-                )
-                if res.status_code == 200:
-                    data = res.json().get("data", {})
-                    videos = data.get("videos", []) if isinstance(data, dict) else []
-                    for v in videos:
-                        c_time = int(v.get("create_time", 0))
-                        if 1754000000 <= c_time <= 1759276800:
-                            vid_id = v.get("video_id", "")
-                            author = v.get("author", {}).get("unique_id", "user")
-                            url = f"https://www.tiktok.com/@{author}/video/{vid_id}"
-                            title = v.get("title") or f"فيديو تيك توك (@{author})"
-                            thumb = v.get("cover", "")
-                            dt_str = datetime.fromtimestamp(c_time, tz=AST_TZ).strftime("%Y-%m-%d %H:%M:%S (توقيت المدينة)")
-                            tier = classify_tier(dt_str, c_time)
-                            add_result(
-                                url, title, "TikTok", f"تعمق تيك توك ({kw})",
-                                f"وقت الرفع الدقيق: {dt_str}", thumb, title, tier
-                            )
-            except Exception as e:
-                print(f"[!] تنبيه TikTok: {e}")
-            time.sleep(0.8)
-
-def search_numeric_dates_all_platforms():
-    """2. البحث بصيغ التواريخ الرقمية الدقيقة والوسوم (Hashtags) عبر جميع المنصات"""
+def search_ultra_specific_burial_scenes():
+    """بحث شديد التخصص في مشاهد الدفن والقبور المفتوحة وحفر القبور في البقيع فقط"""
     if not SERPER_API_KEY:
         return
-    print("[*] 2/4 جاري المسح بصيغ التواريخ الرقمية والهجري...")
-    numeric_queries = [
-        'البقيع "5/8/2025"', 'البقيع "05/08/2025"', 'البقيع "2025/08/05"', 'البقيع "2025-08-05"',
-        'البقيع "6/8/2025"', 'البقيع "11/2/1447"', 'البقيع "11/02/1447"', 'البقيع "12/2/1447"',
-        'البقيع "11 صفر"', 'البقيع "12 صفر"', 'دفن البقيع صفر 1447', 'جنازة البقيع أغسطس 2025',
-        'baqi "05/08/2025"', 'baqi "5/8/2025"', 'baqi "2025-08-05"', 'baqi "5 agustus"',
-        'baqi "6 agustus"', 'jannatul baqi "august 5"', 'jannatul baqi "5 august"',
-        'baki "5 ağustos"', 'baki "05.08.2025"', 'баки "05.08.2025"', 'جنت البقیع "5 اگست"'
+    print("[*] جاري البحث فائق الدقة في أوصاف مشاهد الدفن والقبور داخل البقيع...")
+    ultra_queries = [
+        "دفن ميت في البقيع بعد الفجر",
+        "لحظة دفن في مقبرة البقيع",
+        "تشييع جنازة في البقيع",
+        "قبور البقيع من الداخل",
+        "حفر القبور في البقيع",
+        "صلاة الفجر والدفن في البقيع",
+        "prosesi pemakaman di baqi madinah",
+        "penguburan jenazah di jannatul baqi",
+        "suasana pemakaman baqi subuh",
+        "جنت البقیع میں تدفین کا منظر",
+        "مدینہ جنت البقیع قبرستان تدفین",
+        "cennetül baki cenaze defin",
+        "medine baki mezarlığı defin",
+        "похороны на кладбище баки в медине",
+        "madina baqi qabristoni dafn marosimi",
+        "জান্নাতুল বাকি কবরস্থানে দাফন"
     ]
-    for nq in numeric_queries:
-        serper_request(nq, "تاريخ رقمي دقيق", endpoint="videos")
+    for uq in ultra_queries:
+        serper_request(f"{uq} after:2025-08-04 before:2025-08-25", "تطابق المشهد الدقيق", endpoint="videos")
         time.sleep(0.12)
-        serper_request(nq, "تاريخ رقمي دقيق", endpoint="search")
+        serper_request(f"{uq} after:2025-08-04 before:2025-08-25", "تطابق المشهد الدقيق", endpoint="search")
         time.sleep(0.12)
 
-def search_targeted_time_window_social():
-    """3. مسح المنصات بنافذة زمنية ضيقة جداً (4 إلى 12 أغسطس 2025)"""
-    if not SERPER_API_KEY:
-        return
-    print("[*] 3/4 جاري مسح المنصات في النافذة الزمنية الضيقة (4-12 أغسطس)...")
-    sites = [
-        ("TikTok", "site:tiktok.com"),
-        ("Instagram", "site:instagram.com"),
-        ("Facebook", "site:facebook.com"),
-        ("Snapchat", "site:snapchat.com"),
-        ("X", "site:x.com"),
-        ("Telegram", "site:t.me"),
-        ("VK", "site:vk.com")
-    ]
-    core_words = [
-        "البقيع", "بقيع الغرقد", "جنازة", "دفن", "jannatul baqi",
-        "pemakaman baqi", "makam baqi", "جنت البقیع", "cennetül baki", "кладбище баки"
-    ]
-    for plat_name, site_op in sites:
-        for w in core_words:
-            q = f"{site_op} {w} after:2025-08-04 before:2025-08-12"
-            serper_request(q, f"نافذة 4-12 أغسطس ({w})", endpoint="search", forced_platform=plat_name)
-            time.sleep(0.12)
-
-def search_asian_regional_platforms():
-    """4. مسح المنصات الإقليمية الآسيوية والمنتديات (SnackVideo, ShareChat, Moj, Bilibili, Reddit, Pinterest)"""
-    if not SERPER_API_KEY:
-        return
-    print("[*] 4/4 جاري مسح منصات جنوب وشرق آسيا الإضافية (SnackVideo, ShareChat, Moj, Bilibili, Reddit)...")
-    extra_targets = [
-        ("Likee_Kwai", "site:snackvideo.com", ["baqi", "makam baqi", "pemakaman baqi", "madinah baqi", "جنت البقیع"]),
-        ("Likee_Kwai", "site:sharechat.com", ["jannatul baqi", "madina baqi", "جنت البقیع"]),
-        ("Likee_Kwai", "site:mojapp.in", ["jannatul baqi", "baqi madina"]),
-        ("Other", "site:bilibili.com", ["jannatul baqi", "madinah baqi", "麦地那"]),
-        ("Other", "site:reddit.com", ["jannatul baqi", "al baqi burial", "baqi cemetery"]),
-        ("Other", "site:pinterest.com", ["jannatul baqi 2025", "pemakaman baqi", "مقبرة البقيع"])
-    ]
-    for plat_name, site_op, terms in extra_targets:
-        for t in terms:
-            serper_request(f"{site_op} {t}", f"منصة إقليمية ({t})", endpoint="search", forced_platform=plat_name)
-            time.sleep(0.12)
-
-    api_status["snapmap"] = "✅ اكتمل المسح الشامل لـ 15+ منصة"
+def extract_embed_url(url, platform):
+    """توليد رابط تشغيل مباشر داخل البطاقة بدون مغادرة الصفحة"""
+    if platform == "YouTube":
+        m = re.search(r"(?:v=|youtu\.be/|shorts/)([A-Za-z0-9_-]{11})", url)
+        if m:
+            return f"https://www.youtube.com/embed/{m.group(1)}?autoplay=1"
+    elif platform == "TikTok":
+        m = re.search(r"/video/(\d{19})", url)
+        if m:
+            return f"https://www.tiktok.com/embed/v2/{m.group(1)}"
+    elif platform == "Dailymotion":
+        m = re.search(r"/video/([a-zA-Z0-9]+)", url)
+        if m:
+            return f"https://www.dailymotion.com/embed/video/{m.group(1)}?autoplay=1"
+    return ""
 
 def generate_html_report():
-    """بناء لوحة التحكم الذكية V5 مع الفلترة المتقاطعة وحفظ المشاهدات والمفضلة"""
+    """بناء لوحة التحكم الذكية V6 مع مصفاة الضوضاء، المشغل الداخلي، وزر الحذف النهائي"""
     sorted_items = sorted(
         results_db.values(),
-        key=lambda x: (x.get("tier", 3), not x.get("is_new", False), x.get("published_at", ""))
+        key=lambda x: (
+            x.get("relevance") != "strict",
+            x.get("tier", 3),
+            not x.get("is_new", False),
+            x.get("published_at", "")
+        )
     )
 
     platform_counts = {p: 0 for p in ALL_PLATFORMS_ORDER}
-    tier1_count = 0
-    tier2_count = 0
+    strict_count = 0
+    noise_count = 0
+    tier1_strict_count = 0
+    tier2_strict_count = 0
     new_count = 0
 
     for item in sorted_items:
         p = item.get("platform", "Other")
-        platform_counts[p] = platform_counts.get(p, 0) + 1
-        if item.get("tier") == 1:
-            tier1_count += 1
-        elif item.get("tier") == 2:
-            tier2_count += 1
+        rel = item.get("relevance", "strict")
+        if rel == "strict":
+            strict_count += 1
+            platform_counts[p] = platform_counts.get(p, 0) + 1
+            if item.get("tier") == 1:
+                tier1_strict_count += 1
+            elif item.get("tier") == 2:
+                tier2_strict_count += 1
+        else:
+            noise_count += 1
         if item.get("is_new"):
             new_count += 1
 
-    plat_buttons_html = f'<button class="filter-btn plat-btn active" onclick="setPlatformFilter(\'all\', this)">كل المنصات ({len(results_db)})</button>\n'
+    plat_buttons_html = f'<button class="filter-btn plat-btn active" onclick="setPlatformFilter(\'all\', this)">كل المنصات الصافية ({strict_count})</button>\n'
     for plat in ALL_PLATFORMS_ORDER:
         count = platform_counts.get(plat, 0)
         btn_style = 'style="border:1px solid #38bdf8;"' if count > 0 else 'style="opacity:0.6;"'
         plat_buttons_html += f'<button class="filter-btn plat-btn" {btn_style} onclick="setPlatformFilter(\'{plat}\', this)">{plat} ({count})</button>\n'
 
     cards_html = ""
-    for item in sorted_items:
+    for idx, item in enumerate(sorted_items):
         tier = item.get("tier", 3)
         is_new = item.get("is_new", False)
+        rel = item.get("relevance", "strict")
         url_safe = item["url"].replace('"', '&quot;')
+        embed_url = extract_embed_url(item["url"], item["platform"])
+
         if tier == 1:
             tier_badge = '<span class="tier-badge t1">🟢 يوم الدفن (5 أغسطس)</span>'
             card_class = "card tier-1"
@@ -311,29 +314,38 @@ def generate_html_report():
         thumb_html = (
             f'<img src="{item["thumbnail"]}" loading="lazy" alt="thumb">'
             if item.get("thumbnail")
-            else f'<div class="no-thumb">{item["platform"]} — اضغط لفتح المقطع</div>'
+            else f'<div class="no-thumb">{item["platform"]} — مقطع فيديو</div>'
+        )
+
+        play_here_btn = (
+            f'<button class="play-btn" onclick="playInline({idx}, \'{embed_url}\', \'{url_safe}\')" title="تشغيل الفيديو هنا بدون مغادرة الصفحة">▶️ معاينة</button>'
+            if embed_url else ""
         )
 
         search_text = f"{item['title']} {item['snippet']} {item['lang']} {item['platform']} {item['published_at']}".replace('"', '')
 
         cards_html += f"""
-        <div class="{card_class}" data-url="{url_safe}" data-tier="{tier}" data-platform="{item['platform']}" data-new="{str(is_new).lower()}" data-search="{search_text}">
-            {thumb_html}
+        <div class="{card_class}" id="card-{idx}" data-url="{url_safe}" data-tier="{tier}" data-platform="{item['platform']}" data-new="{str(is_new).lower()}" data-relevance="{rel}" data-search="{search_text}">
+            <div class="media-box" id="media-{idx}">
+                {thumb_html}
+            </div>
             <div class="card-body">
                 <div class="tags">
                     {new_badge}
                     <span class="badge plat">{item['platform']}</span>
                     <span class="badge lang">{item['lang']}</span>
                     {tier_badge}
-                    <span class="seen-label" style="display:none;">✔️ تمت المشاهدة</span>
+                    <span class="seen-label" style="display:none;">✔️ شوهد</span>
                 </div>
                 <h3><a href="{url_safe}" target="_blank" rel="noopener" onclick="markAsSeen('{url_safe}')">{item['title']}</a></h3>
                 <p class="date">{item['published_at']}</p>
-                <p class="snippet">{item['snippet'][:180]}</p>
+                <p class="snippet">{item['snippet'][:170]}</p>
                 <div class="card-actions">
-                    <a class="open-btn" href="{url_safe}" target="_blank" rel="noopener" onclick="markAsSeen('{url_safe}')">مشاهدة الفيديو ↗</a>
-                    <button class="star-btn" onclick="toggleStar('{url_safe}', this)" title="إضافة للمفضلة / المشتبه به">⭐</button>
-                    <button class="seen-btn" onclick="toggleSeenManual('{url_safe}', this)" title="تحديد كمشاهد / غير مشاهد">👁️</button>
+                    <a class="open-btn" href="{url_safe}" target="_blank" rel="noopener" onclick="markAsSeen('{url_safe}')">فتح ↗</a>
+                    {play_here_btn}
+                    <button class="star-btn" onclick="toggleStar('{url_safe}', this)" title="إضافة للمفضلة">⭐</button>
+                    <button class="seen-btn" onclick="toggleSeenManual('{url_safe}', this)" title="تحديد كمشاهد">👁️</button>
+                    <button class="trash-btn" onclick="trashCard('{url_safe}')" title="استبعاد وإخفاء نهائياً لأنه غير مرتبط">🗑️</button>
                 </div>
             </div>
         </div>
@@ -346,76 +358,80 @@ def generate_html_report():
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>رادار تنقيب البقيع الشامل V5 - 5 أغسطس 2025</title>
+    <title>رادار تنقيب البقيع الشامل V6 - المصفاة الذكية</title>
     <style>
         body { font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 20px; }
         .header { max-width: 1280px; margin: 0 auto 20px; background: #1e293b; padding: 20px; border-radius: 14px; border: 1px solid #334155; }
-        .stats-bar { display: flex; gap: 15px; flex-wrap: wrap; margin: 10px 0; padding: 12px; background: #0f172a; border-radius: 10px; font-size: 14px; align-items: center; }
-        .api-bar { display: flex; gap: 15px; flex-wrap: wrap; margin: 8px 0; padding: 10px 14px; background: #172554; border: 1px solid #1d4ed8; border-radius: 10px; font-size: 13px; align-items: center; }
-        .snap-btn { background: #eab308; color: #000; text-decoration: none; padding: 7px 14px; border-radius: 8px; font-weight: bold; font-size: 13px; margin-right: auto; }
-        .search-box { width: 100%; padding: 12px 15px; border-radius: 8px; border: 1px solid #475569; background: #0f172a; color: #fff; font-size: 15px; margin-top: 10px; box-sizing: border-box; }
-        .filter-group-title { font-size: 12px; color: #94a3b8; margin-top: 12px; margin-bottom: 4px; font-weight: bold; }
+        .stats-bar { display: flex; gap: 14px; flex-wrap: wrap; margin: 10px 0; padding: 12px; background: #0f172a; border-radius: 10px; font-size: 13.5px; align-items: center; }
+        .api-bar { display: flex; gap: 12px; flex-wrap: wrap; margin: 8px 0; padding: 10px 14px; background: #172554; border: 1px solid #1d4ed8; border-radius: 10px; font-size: 13px; align-items: center; }
+        .snap-btn { background: #eab308; color: #000; text-decoration: none; padding: 6px 12px; border-radius: 8px; font-weight: bold; font-size: 12.5px; }
+        .backup-btn { background: #334155; color: #fff; border: 1px solid #64748b; padding: 6px 10px; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: bold; }
+        .search-box { width: 100%; padding: 12px 15px; border-radius: 8px; border: 1px solid #475569; background: #0f172a; color: #fff; font-size: 15px; margin-top: 8px; box-sizing: border-box; }
+        .filter-group-title { font-size: 12px; color: #94a3b8; margin-top: 12px; margin-bottom: 5px; font-weight: bold; }
         .filters { display: flex; gap: 8px; flex-wrap: wrap; }
         .filter-btn { background: #334155; color: #fff; border: none; padding: 8px 13px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 13px; transition: 0.15s; }
         .filter-btn.active, .filter-btn:hover { background: #2563eb; opacity: 1 !important; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 18px; max-width: 1280px; margin: 0 auto; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 18px; max-width: 1280px; margin: 0 auto; }
         .card { background: #1e293b; border-radius: 12px; overflow: hidden; border: 1px solid #334155; display: flex; flex-direction: column; transition: 0.2s; }
-        .card.seen-card { opacity: 0.45; border-color: #475569 !important; box-shadow: none !important; }
+        .card.seen-card { opacity: 0.42; border-color: #475569 !important; box-shadow: none !important; }
         .card.starred-card { border: 2px solid #f59e0b !important; box-shadow: 0 0 18px rgba(245, 158, 11, 0.4) !important; opacity: 1 !important; }
         .tier-1 { border: 2px solid #22c55e; box-shadow: 0 0 15px rgba(34, 197, 94, 0.25); }
         .tier-2 { border: 2px solid #eab308; }
-        .card img { width: 100%; height: 180px; object-fit: cover; background: #000; }
+        .media-box { width: 100%; background: #000; position: relative; }
+        .media-box img { width: 100%; height: 185px; object-fit: cover; display: block; }
+        .media-box iframe { width: 100%; height: 260px; border: none; display: block; }
         .no-thumb { width: 100%; height: 110px; background: #090d16; display: flex; align-items: center; justify-content: center; color: #94a3b8; font-weight: bold; font-size: 14px; }
-        .card-body { padding: 15px; flex: 1; display: flex; flex-direction: column; }
-        .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
-        .badge { font-size: 11px; padding: 3px 8px; border-radius: 6px; color: white; }
+        .card-body { padding: 14px; flex: 1; display: flex; flex-direction: column; }
+        .tags { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 9px; }
+        .badge { font-size: 11px; padding: 3px 7px; border-radius: 6px; color: white; }
         .plat { background: #475569; font-weight: bold; }
         .lang { background: #0284c7; }
-        .new-badge { background: #ec4899; color: #fff; font-size: 11px; padding: 3px 8px; border-radius: 6px; font-weight: bold; }
-        .seen-label { background: #64748b; color: #fff; font-size: 11px; padding: 3px 8px; border-radius: 6px; font-weight: bold; }
-        .tier-badge { font-size: 11px; padding: 3px 8px; border-radius: 6px; font-weight: bold; }
+        .new-badge { background: #ec4899; color: #fff; font-size: 11px; padding: 3px 7px; border-radius: 6px; font-weight: bold; }
+        .seen-label { background: #64748b; color: #fff; font-size: 11px; padding: 3px 7px; border-radius: 6px; font-weight: bold; }
+        .tier-badge { font-size: 11px; padding: 3px 7px; border-radius: 6px; font-weight: bold; }
         .t1 { background: #16a34a; color: #fff; }
         .t2 { background: #ca8a04; color: #fff; }
         .t3 { background: #334155; color: #cbd5e1; }
-        h3 { margin: 0 0 8px; font-size: 15px; line-height: 1.4; }
+        h3 { margin: 0 0 7px; font-size: 14.5px; line-height: 1.4; }
         h3 a { color: #38bdf8; text-decoration: none; }
-        .date { font-size: 13px; color: #fde047; margin: 0 0 8px; font-weight: bold; }
-        .snippet { font-size: 13px; color: #cbd5e1; margin: 0 0 15px; flex: 1; word-break: break-word; }
-        .card-actions { display: flex; gap: 8px; align-items: center; }
-        .open-btn { flex: 1; text-align: center; background: #2563eb; color: white; text-decoration: none; padding: 9px; border-radius: 6px; font-size: 14px; font-weight: bold; }
-        .open-btn:hover { background: #1d4ed8; }
-        .star-btn, .seen-btn { background: #334155; border: 1px solid #475569; color: #fff; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+        .date { font-size: 12.5px; color: #fde047; margin: 0 0 7px; font-weight: bold; }
+        .snippet { font-size: 12.5px; color: #cbd5e1; margin: 0 0 12px; flex: 1; word-break: break-word; }
+        .card-actions { display: flex; gap: 6px; align-items: center; }
+        .open-btn { flex: 1; text-align: center; background: #2563eb; color: white; text-decoration: none; padding: 8px; border-radius: 6px; font-size: 13px; font-weight: bold; }
+        .play-btn { background: #059669; color: #fff; border: none; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 12.5px; font-weight: bold; }
+        .star-btn, .seen-btn, .trash-btn { background: #334155; border: 1px solid #475569; color: #fff; padding: 7px 9px; border-radius: 6px; cursor: pointer; font-size: 13px; }
         .star-btn.active { background: #f59e0b; color: #000; border-color: #f59e0b; }
+        .trash-btn:hover { background: #dc2626; border-color: #dc2626; }
     </style>
 </head>
 <body>
     <div class="header">
-        <h2>رادار تنقيب البقيع الشامل (الثلاثاء 5 أغسطس 2025 / 11 صفر 1447 هـ)</h2>
+        <h2>رادار تنقيب البقيع الشامل V6 — المصفاة الذكية (الثلاثاء 5 أغسطس 2025 / 11 صفر 1447 هـ)</h2>
         <div class="api-bar">
-            <span>📡 YouTube: <strong>__YT_STATUS__</strong></span>
-            <span>🌐 Serper Multi-Platform: <strong>__SERPER_STATUS__</strong></span>
-            <span>👻 المنصات الإضافية: <strong>__SNAP_STATUS__</strong></span>
-            <a href="__SNAP_MAP_URL__" target="_blank" rel="noopener" class="snap-btn">🗺️ فتح خريطة السناب فوق إحداثيات القبر مباشرة ↗</a>
+            <span>🎯 الصافي المرتبط بالبقيع: <strong>__STRICT_COUNT__</strong></span>
+            <span>🚫 ضوضاء تم عزلها تلقائياً: <strong>__NOISE_COUNT__</strong></span>
+            <button class="backup-btn" onclick="exportProgress()">💾 نسخ سجل المشاهدة والمفضلة</button>
+            <button class="backup-btn" onclick="importProgress()">📥 استعادة السجل</button>
+            <a href="__SNAP_MAP_URL__" target="_blank" rel="noopener" class="snap-btn" style="margin-right:auto;">🗺️ خريطة السناب فوق القبر ↗</a>
         </div>
         <div class="stats-bar">
-            <span>📦 الإجمالي التراكمي: <strong>__TOTAL_COUNT__</strong></span>
-            <span>🆕 مكتشف في هذه الجولة: <strong>__NEW_COUNT__</strong></span>
-            <span>🟢 يوم الدفن (5 أغسطس): <strong>__TIER1_COUNT__</strong></span>
-            <span>🟡 أيام المربع (4 و 6-8 أغسطس): <strong>__TIER2_COUNT__</strong></span>
-            <span>👁️ شاهدته أنت: <strong id="seenCounter">0</strong></span>
+            <span>🟢 يوم الدفن الصافي (5 أغسطس): <strong>__TIER1_COUNT__</strong></span>
+            <span>🟡 أيام المربع الصافي (4 و 6-8 أغسطس): <strong>__TIER2_COUNT__</strong></span>
+            <span>👁️ شاهدته: <strong id="seenCounter">0</strong></span>
             <span>⭐ المفضلة: <strong id="starCounter">0</strong></span>
-            <span>🔍 المعروض الآن: <strong id="visibleCounter">__TOTAL_COUNT__</strong></span>
+            <span>🗑️ استبعدته: <strong id="trashCounter">0</strong></span>
+            <span>🔍 المعروض الآن: <strong id="visibleCounter">0</strong></span>
         </div>
-        <input type="text" id="searchInput" class="search-box" placeholder="🔍 ابحث فوراً داخل النتائج (مثال: فجر، جنازة، باقي، 5 أغسطس، اسم لغة أو كلمة)..." oninput="applyAllFilters()">
+        <input type="text" id="searchInput" class="search-box" placeholder="🔍 ابحث فوراً داخل النتائج (مثال: فجر، جنازة، دفن، قبر، اسم لغة أو كلمة)..." oninput="applyAllFilters()">
         
-        <div class="filter-group-title">1️⃣ فلتر الأولوية الزمنية وحالة المشاهدة (يمكن دمجه مع أي منصة بالأسفل):</div>
+        <div class="filter-group-title">1️⃣ فلتر الدقة والأولوية الزمنية (الوضع الافتراضي يعرض الصافي المرتبط بالبقيع فقط ويعزل المقاطع العشوائية):</div>
         <div class="filters">
-            <button class="filter-btn mode-btn active" onclick="setModeFilter('all', this)">عرض الكل (__TOTAL_COUNT__)</button>
-            <button class="filter-btn mode-btn" style="border:1px solid #ec4899" onclick="setModeFilter('new', this)">🆕 الجديد فقط (__NEW_COUNT__)</button>
-            <button class="filter-btn mode-btn" style="border:1px solid #22c55e" onclick="setModeFilter('tier-1', this)">🟢 يوم الدفن: 5 أغسطس (__TIER1_COUNT__)</button>
-            <button class="filter-btn mode-btn" style="border:1px solid #eab308" onclick="setModeFilter('tier-2', this)">🟡 نفس المربع: 4 و 6-8 أغسطس (__TIER2_COUNT__)</button>
+            <button class="filter-btn mode-btn active" onclick="setModeFilter('strict-all', this)">🎯 الصافي المؤكد للبقيع (__STRICT_COUNT__)</button>
+            <button class="filter-btn mode-btn" style="border:1px solid #22c55e" onclick="setModeFilter('tier-1', this)">🟢 يوم الدفن الصافي: 5 أغسطس (__TIER1_COUNT__)</button>
+            <button class="filter-btn mode-btn" style="border:1px solid #eab308" onclick="setModeFilter('tier-2', this)">🟡 نفس المربع الصافي: 4 و 6-8 أغسطس (__TIER2_COUNT__)</button>
+            <button class="filter-btn mode-btn" style="border:1px solid #38bdf8" onclick="setModeFilter('unseen', this)">🙈 الصافي الذي لم أشاهده بعد</button>
             <button class="filter-btn mode-btn" style="border:1px solid #f59e0b" onclick="setModeFilter('starred', this)">⭐ المفضلة والمشتبه به</button>
-            <button class="filter-btn mode-btn" style="border:1px solid #38bdf8" onclick="setModeFilter('unseen', this)">🙈 لم أشاهده بعد فقط</button>
+            <button class="filter-btn mode-btn" style="opacity:0.7" onclick="setModeFilter('raw-all', this)">📦 عرض كل الأرشيف بما فيه المعزول (__TOTAL_COUNT__)</button>
         </div>
 
         <div class="filter-group-title">2️⃣ فلتر المنصة (يتقاطع مع الفلتر العلوي):</div>
@@ -427,16 +443,27 @@ def generate_html_report():
         __CARDS_HTML__
     </div>
     <script>
-        let currentMode = 'all';
+        let currentMode = 'strict-all';
         let currentPlatform = 'all';
         let seenSet = new Set(JSON.parse(localStorage.getItem('baqi_seen_urls') || '[]'));
         let starSet = new Set(JSON.parse(localStorage.getItem('baqi_star_urls') || '[]'));
+        let trashSet = new Set(JSON.parse(localStorage.getItem('baqi_trash_urls') || '[]'));
 
         function saveStorage() {
             localStorage.setItem('baqi_seen_urls', JSON.stringify([...seenSet]));
             localStorage.setItem('baqi_star_urls', JSON.stringify([...starSet]));
+            localStorage.setItem('baqi_trash_urls', JSON.stringify([...trashSet]));
             document.getElementById('seenCounter').textContent = seenSet.size;
             document.getElementById('starCounter').textContent = starSet.size;
+            document.getElementById('trashCounter').textContent = trashSet.size;
+        }
+
+        function playInline(idx, embedUrl, rawUrl) {
+            const box = document.getElementById('media-' + idx);
+            if (box && embedUrl) {
+                box.innerHTML = '<iframe src="' + embedUrl + '" allow="autoplay; encrypted-media" allowfullscreen></iframe>';
+                markAsSeen(rawUrl);
+            }
         }
 
         function syncCardStates() {
@@ -482,6 +509,39 @@ def generate_html_report():
             applyAllFilters();
         }
 
+        function trashCard(url) {
+            trashSet.add(url);
+            saveStorage();
+            applyAllFilters();
+        }
+
+        function exportProgress() {
+            const data = JSON.stringify({
+                seen: [...seenSet],
+                star: [...starSet],
+                trash: [...trashSet]
+            });
+            navigator.clipboard.writeText(data).then(() => {
+                alert('تم نسخ سجل المشاهدة والمفضلة إلى الحافظة! يمكنك لصقه في أي جهاز آخر عبر زر استعادة السجل.');
+            });
+        }
+
+        function importProgress() {
+            const input = prompt('الصق كود السجل الذي نسخته هنا:');
+            if (!input) return;
+            try {
+                const obj = JSON.parse(input);
+                (obj.seen || []).forEach(u => seenSet.add(u));
+                (obj.star || []).forEach(u => starSet.add(u));
+                (obj.trash || []).forEach(u => trashSet.add(u));
+                syncCardStates();
+                applyAllFilters();
+                alert('تم استعادة السجل بنجاح!');
+            } catch (e) {
+                alert('الكود غير صحيح.');
+            }
+        }
+
         function setModeFilter(mode, btn) {
             currentMode = mode;
             document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
@@ -501,17 +561,22 @@ def generate_html_report():
             let visible = 0;
             document.querySelectorAll('.card').forEach(card => {
                 const url = card.dataset.url;
+                if (trashSet.has(url) && currentMode !== 'starred') {
+                    card.style.display = 'none';
+                    return;
+                }
                 const tier = card.dataset.tier;
                 const plat = card.dataset.platform;
-                const isNew = card.dataset.new === 'true';
+                const rel = card.dataset.relevance;
                 const text = (card.dataset.search || '').toLowerCase();
 
                 let matchMode = true;
-                if (currentMode === 'new') matchMode = isNew;
-                else if (currentMode === 'tier-1') matchMode = (tier === '1');
-                else if (currentMode === 'tier-2') matchMode = (tier === '2');
+                if (currentMode === 'strict-all') matchMode = (rel === 'strict');
+                else if (currentMode === 'tier-1') matchMode = (rel === 'strict' && tier === '1');
+                else if (currentMode === 'tier-2') matchMode = (rel === 'strict' && tier === '2');
+                else if (currentMode === 'unseen') matchMode = (rel === 'strict' && !seenSet.has(url));
                 else if (currentMode === 'starred') matchMode = starSet.has(url);
-                else if (currentMode === 'unseen') matchMode = !seenSet.has(url);
+                else if (currentMode === 'raw-all') matchMode = true;
 
                 let matchPlat = (currentPlatform === 'all') || (plat === currentPlatform);
                 let matchSearch = (!q) || text.includes(q);
@@ -536,14 +601,12 @@ def generate_html_report():
 
     final_html = (
         html_template
-        .replace("__YT_STATUS__", api_status["youtube"])
-        .replace("__SERPER_STATUS__", api_status["serper"])
-        .replace("__SNAP_STATUS__", api_status["snapmap"])
+        .replace("__STRICT_COUNT__", str(strict_count))
+        .replace("__NOISE_COUNT__", str(noise_count))
         .replace("__SNAP_MAP_URL__", snap_map_url)
         .replace("__TOTAL_COUNT__", str(len(results_db)))
-        .replace("__NEW_COUNT__", str(new_count))
-        .replace("__TIER1_COUNT__", str(tier1_count))
-        .replace("__TIER2_COUNT__", str(tier2_count))
+        .replace("__TIER1_COUNT__", str(tier1_strict_count))
+        .replace("__TIER2_COUNT__", str(tier2_strict_count))
         .replace("__PLATFORM_BUTTONS__", plat_buttons_html)
         .replace("__CARDS_HTML__", cards_html)
     )
@@ -552,12 +615,9 @@ def generate_html_report():
         f.write(final_html)
     with open("results.json", "w", encoding="utf-8") as f:
         json.dump(list(results_db.values()), f, ensure_ascii=False, indent=2)
-    print(f"[+] اكتمل التحديث V5 بنجاح! الإجمالي الآن: {len(results_db)} نتيجة (منها {new_count} جديدة).")
+    print(f"[+] اكتمل التحديث V6! الصافي المرتبط بالبقيع: {strict_count} | المعزول تلقائياً: {noise_count}")
 
 if __name__ == "__main__":
     load_previous_results()
-    search_tiktok_deep_pages()
-    search_numeric_dates_all_platforms()
-    search_targeted_time_window_social()
-    search_asian_regional_platforms()
+    search_ultra_specific_burial_scenes()
     generate_html_report()
