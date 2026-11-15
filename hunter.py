@@ -9,90 +9,74 @@ from datetime import datetime, timezone, timedelta
 AST_TZ = timezone(timedelta(hours=3))
 
 # إحداثيات القبر الدقيقة داخل مقبرة البقيع
-LAT_LON = "24.466694,39.614944"
+LAT = 24.466694
+LON = 39.614944
+LAT_LON = f"{LAT},{LON}"
 
 # النطاقات الزمنية
 SQUARE_START_ISO = "2025-08-04T00:00:00Z"
 SQUARE_END_ISO = "2025-08-09T23:59:59Z"
 END_DATE_ISO = "2025-08-28T23:59:59Z"
 
-YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "")
-SERPER_API_KEY = os.getenv("SERPER_API_KEY", "")
+# تنظيف المفاتيح تلقائياً من أي مسافات زائدة أثناء النسخ واللصق
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "").strip()
+SERPER_API_KEY = os.getenv("SERPER_API_KEY", "").strip()
 
-# 1. مصفوفة اللغات الشاملة (12 مجموعة لغوية لزوار المدينة المنورة)
+api_status = {
+    "youtube": "غير مفعل",
+    "serper": "غير مفعل",
+    "snapmap": "جاهز"
+}
+
+# مصفوفة اللغات الشاملة (بدون تعقيد يمنع ظهور النتائج)
 BURIAL_QUERIES = {
     "Arabic": [
         "دفن في البقيع", "مقبرة البقيع دفن", "جنازة البقيع", "بقيع الغرقد دفن",
-        "البقيع بعد الفجر", "دفن موتى البقيع", "البقيع 11 صفر", "البقيع 12 صفر",
-        "البقيع 5 أغسطس", "البقيع 6 أغسطس", "قبور البقيع", "دفن ميت في البقيع"
+        "البقيع بعد الفجر", "دفن موتى البقيع", "البقيع 11 صفر", "البقيع 5 أغسطس",
+        "سناب البقيع", "تصوير البقيع"
     ],
     "Indonesian_Malay": [
         "pemakaman baqi", "pemakaman di baqi madinah", "makam baqi", "kuburan baqi",
-        "jannatul baqi pemakaman", "penguburan baqi", "jenazah di baqi",
-        "baqi 5 agustus 2025", "pengebumian baqi"
+        "jannatul baqi pemakaman", "penguburan baqi", "jenazah di baqi", "pengebumian baqi"
     ],
     "Urdu_Hindi": [
         "جنت البقیع تدفین", "جنت البقیع قبرستان", "بقیع میں تدفین", "جنت البقیع جنازہ",
-        "jannatul baqi burial", "jannat ul baqi qabristan", "baqi madinah janaza",
-        "baqi mein tadfeen"
+        "jannatul baqi burial", "jannat ul baqi qabristan", "baqi madinah janaza"
     ],
     "Turkish": [
-        "cennetül baki defin", "baki mezarlığı cenaze", "medine baki kabristanı",
-        "cennetül baki cenaze", "baki mezarlığı defin"
+        "cennetül baki defin", "baki mezarlığı cenaze", "medine baki kabristanı", "cennetül baki cenaze"
     ],
-    "Russian": [
-        "кладбище баки похороны", "джаннат аль баки", "похороны в медина баки",
-        "кладбище аль баки медина", "баки медина"
-    ],
-    "Central_Asia_Uzbek_Kazakh_Tajik": [
-        "baqi qabristoni", "jannatul baqi dafn", "madina baqi qabristoni",
-        "бақи зираты", "мадина бақи", "қабристони бақеъ"
+    "Russian_CentralAsia": [
+        "кладбище баки похороны", "джаннат аль баки", "baqi qabristoni", "jannatul baqi dafn",
+        "бақи зираты", "қабристони бақеъ"
     ],
     "Bengali": [
-        "জান্নাতুল বাকি দাফন", "মদিনা জান্নাতুল বাকি", "জান্নাতুল বাকি কবরস্থান",
-        "জান্নাতুল বাকিতে দাফন"
+        "জান্নাতুল বাকি দাফন", "মদিনা জান্নাতুল বাকি", "জান্নাতুল বাকি কবরস্থান"
     ],
-    "Persian_Dari": [
-        "دفن در بقیع", "قبرستان بقیع تدفین", "جنت البقیع مدینه", "مراسم دفن بقیع"
+    "Persian_Pashto": [
+        "دفن در بقیع", "قبرستان بقیع تدفین", "جنت البقیع مدینه", "جنت البقيع هديره"
     ],
-    "Pashto": [
-        "جنت البقيع خښول", "جنت البقيع هديره", "مدينه بقيع"
-    ],
-    "English": [
+    "English_French_African": [
         "jannatul baqi burial", "al baqi cemetery burial", "burying in baqi madinah",
-        "funeral in jannatul baqi", "baqi graveyard madinah"
-    ],
-    "French_North_West_Africa": [
-        "enterrement baqi médine", "cimetière al baqi", "inhumation baqi",
-        "jannatul baqi médine"
-    ],
-    "African_Hausa_Swahili": [
-        "makabidhiano baqi", "makaburi ya baqi madina", "makabarta baqi madina"
+        "enterrement baqi médine", "cimetière al baqi", "makaburi ya baqi"
     ]
 }
 
-# 2. كلمات عامة لمسح أيام المربع (4 إلى 8 أغسطس) وللمنصات النادرة
 CORE_BAQI_TERMS = [
     "مقبرة البقيع", "بقيع الغرقد", "البقيع", "jannatul baqi", "pemakaman baqi",
     "جنت البقیع", "cennetül baki", "кладбище баки", "baqi qabristoni", "জান্নাতুল বাকি"
 ]
 
-# 3. تقسيم المنصات بشكل معزول تماماً لمنع طغيان منصة على أخرى
-ISOLATED_PLATFORMS = {
-    "Snapchat": 'site:snapchat.com/spotlight OR site:snapchat.com/p OR site:story.snapchat.com',
-    "VK_OK": 'site:vk.com/video OR site:vk.com/clip OR site:vk.com/wall OR site:ok.ru/video',
-    "Telegram": 'site:t.me/s/',
-    "X": 'site:x.com OR site:twitter.com',
-    "ShortVideo_Other": 'site:likee.video OR site:kwai.com OR site:threads.net OR site:dailymotion.com/video',
-    "TikTok": 'site:tiktok.com',
-    "Instagram": 'site:instagram.com/reel OR site:instagram.com/p',
-    "Facebook": 'site:facebook.com/reel OR site:facebook.com/watch OR site:facebook.com/*/videos'
-}
+# قائمة المنصات الثابتة لضمان ظهور أزرارها دائماً في الصفحة
+ALL_PLATFORMS_ORDER = [
+    "YouTube", "TikTok", "Snapchat", "Instagram", "Facebook",
+    "VK", "Telegram", "X", "Dailymotion", "Likee_Kwai", "Other"
+]
 
 results_db = {}
 
 def load_previous_results():
-    """تحميل النتائج السابقة للحفاظ عليها وتمييز النتائج الجديدة"""
+    """تحميل النتائج السابقة من الذاكرة التراكمية"""
     if os.path.exists("results.json"):
         try:
             with open("results.json", "r", encoding="utf-8") as f:
@@ -100,9 +84,9 @@ def load_previous_results():
                 for item in old_list:
                     item["is_new"] = False
                     results_db[item["url"]] = item
-            print(f"[*] تم تحميل {len(results_db)} نتيجة سابقة من الذاكرة التراكمية.")
+            print(f"[*] تم تحميل {len(results_db)} نتيجة سابقة من الذاكرة.")
         except Exception as e:
-            print(f"[!] تعذر قراءة النتائج السابقة: {e}")
+            print(f"[!] تنبيه عند قراءة الذاكرة السابقة: {e}")
 
 def decode_tiktok_timestamp(url):
     """استخراج وقت الرفع الدقيق بالثانية من معرف فيديو تيك توك"""
@@ -117,22 +101,18 @@ def decode_tiktok_timestamp(url):
 def detect_platform_name(url):
     u = url.lower()
     if "tiktok.com" in u: return "TikTok"
-    if "youtube.com" in u or "youtu.be" in u: return "YouTube"
+    if "snapchat.com" in u: return "Snapchat"
     if "instagram.com" in u: return "Instagram"
     if "facebook.com" in u or "fb.watch" in u: return "Facebook"
-    if "snapchat.com" in u: return "Snapchat"
-    if "vk.com" in u: return "VK"
-    if "ok.ru" in u: return "OK.ru"
-    if "t.me/" in u: return "Telegram"
+    if "vk.com" in u or "ok.ru" in u: return "VK"
+    if "t.me/" in u or "telegram.me" in u: return "Telegram"
     if "x.com" in u or "twitter.com" in u: return "X"
-    if "likee.video" in u: return "Likee"
-    if "kwai.com" in u: return "Kwai"
-    if "threads.net" in u: return "Threads"
     if "dailymotion.com" in u: return "Dailymotion"
+    if "likee.video" in u or "kwai.com" in u or "threads.net" in u: return "Likee_Kwai"
+    if "youtube.com" in u or "youtu.be" in u: return "YouTube"
     return "Other"
 
 def classify_tier(date_text, unix_ts=0):
-    """تصنيف الأولوية الزمنية (1: يوم الدفن 5 أغسطس | 2: نفس المربع 4 أو 6-8 أغسطس | 3: رفع متأخر)"""
     if unix_ts > 0:
         if 1754355600 <= unix_ts <= 1754427599:
             return 1
@@ -141,14 +121,20 @@ def classify_tier(date_text, unix_ts=0):
         return 3
 
     d_str = str(date_text)
-    if any(x in d_str for x in ["2025-08-05", "5 Aug 2025", "Aug 5, 2025", "5 أغسطس"]):
+    if any(x in d_str for x in ["2025-08-05", "5 Aug 2025", "Aug 5, 2025", "5 أغسطس", "05.08.2025"]):
         return 1
-    if any(x in d_str for x in ["2025-08-04", "2025-08-06", "2025-08-07", "2025-08-08", "Aug 4, 2025", "Aug 6, 2025", "Aug 7, 2025", "Aug 8, 2025"]):
+    if any(x in d_str for x in [
+        "2025-08-04", "2025-08-06", "2025-08-07", "2025-08-08",
+        "Aug 4, 2025", "Aug 6, 2025", "Aug 7, 2025", "Aug 8, 2025",
+        "6 أغسطس", "7 أغسطس"
+    ]):
         return 2
     return 3
 
 def add_result(url, title, platform, lang, published_at, thumbnail="", snippet="", tier=3):
-    clean_url = url.split("?")[0] if "tiktok.com" in url or "instagram.com" in url else url
+    if not url:
+        return
+    clean_url = url.split("?")[0] if ("tiktok.com" in url or "instagram.com" in url) else url
     if clean_url in results_db:
         if tier < results_db[clean_url].get("tier", 3):
             results_db[clean_url]["tier"] = tier
@@ -158,7 +144,7 @@ def add_result(url, title, platform, lang, published_at, thumbnail="", snippet="
 
     results_db[clean_url] = {
         "url": clean_url,
-        "title": title or "بدون عنوان",
+        "title": title or "مقطع فيديو مكتشف",
         "platform": platform,
         "lang": lang,
         "published_at": published_at,
@@ -168,196 +154,250 @@ def add_result(url, title, platform, lang, published_at, thumbnail="", snippet="
         "is_new": True
     }
 
-def search_youtube_geo():
-    """1. رادار يوتيوب الجغرافي مع سحب الصفحات المتتالية (Pagination)"""
-    if not YOUTUBE_API_KEY:
-        return
-    print("[*] 1/5 جاري مسح يوتيوب بالإحداثيات الجغرافية الدقيقة (مع سحب الصفحات)...")
-    for radius in ["300m", "800m", "2000m"]:
-        page_token = None
-        for _ in range(3):  # سحب حتى 150 فيديو لكل نطاق جغرافي
-            params = {
-                "part": "snippet",
-                "type": "video",
-                "location": LAT_LON,
-                "locationRadius": radius,
-                "publishedAfter": SQUARE_START_ISO,
-                "publishedBefore": END_DATE_ISO,
-                "maxResults": 50,
-                "order": "date",
-                "key": YOUTUBE_API_KEY
-            }
-            if page_token:
-                params["pageToken"] = page_token
-            res = requests.get("https://www.googleapis.com/youtube/v3/search", params=params)
-            if res.status_code != 200:
-                break
-            data = res.json()
-            for item in data.get("items", []):
-                vid_id = item["id"]["videoId"]
-                snip = item["snippet"]
-                url = f"https://www.youtube.com/watch?v={vid_id}"
-                pub = snip.get("publishedAt", "")
-                thumb = snip.get("thumbnails", {}).get("high", {}).get("url", "")
-                add_result(url, snip.get("title"), "YouTube", f"إحداثيات ({radius})", pub, thumb, snip.get("description", ""), classify_tier(pub))
-            page_token = data.get("nextPageToken")
-            if not page_token:
-                break
-            time.sleep(0.3)
+def search_snap_map_direct():
+    """1. فحص خريطة سناب شات المباشرة (Snap Map Web API) حول إحداثيات القبر"""
+    print("[*] جاري فحص خريطة سناب شات المباشرة (Snap Map) حول إحداثيات البقيع...")
+    try:
+        epoch_res = requests.post(
+            "https://ms.sc-jpl.com/web/getLatestTileSet",
+            json={},
+            headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"},
+            timeout=10
+        )
+        epoch = "0"
+        if epoch_res.status_code == 200:
+            infos = epoch_res.json().get("tileSetInfos", [])
+            for info in infos:
+                if info.get("id", {}).get("type") == "HEAT":
+                    epoch = info.get("id", {}).get("epoch", "0")
+                    break
 
-def search_youtube_keywords():
-    """2. مسح يوتيوب الشامل بـ 12 لغة + نافذة المربع"""
-    if not YOUTUBE_API_KEY:
-        return
-    print("[*] 2/5 جاري مسح يوتيوب بـ 12 مجموعة لغوية...")
-    for lang, keywords in BURIAL_QUERIES.items():
-        for kw in keywords:
+        playlist_payload = {
+            "requestGeoPoint": {"lat": LAT, "lon": LON},
+            "zoomLevel": 17.5,
+            "tileSetId": {"flavor": "default", "epoch": epoch, "type": "HEAT"},
+            "radiusMeters": 600.0,
+            "maximumFuzzRadius": 0
+        }
+        pl_res = requests.post(
+            "https://ms.sc-jpl.com/web/getPlaylist",
+            json=playlist_payload,
+            headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"},
+            timeout=10
+        )
+        if pl_res.status_code == 200:
+            elements = pl_res.json().get("manifest", {}).get("elements", [])
+            api_status["snapmap"] = f"متصل ({len(elements)} قصة نشطة بالموقع)"
+            for el in elements:
+                snap_id = el.get("id", "")
+                ts_ms = int(el.get("timestamp", 0))
+                 unix_ts = ts_ms // 1000 if ts_ms else 0
+                dt_str = datetime.fromtimestamp(unix_ts, tz=AST_TZ).strftime("%Y-%m-%d %H:%M:%S") if unix_ts else "خريطة السناب"
+                media_info = el.get("snapInfo", {}).get("streamingMediaInfo", {})
+                thumb = media_info.get("previewUrl", "")
+                snap_url = f"https://map.snapchat.com/@{LAT},{LON},18.00z"
+                if snap_id:
+                    add_result(
+                        f"{snap_url}#snap={snap_id}",
+                        f"قصة خريطة سناب شات من داخل نطاق البقيع ({snap_id[:8]})",
+                        "Snapchat",
+                        "Snap Map إحداثيات",
+                        dt_str,
+                        thumb,
+                        "تم التقاطها من رادار خريطة سناب شات فوق إحداثيات البقيع",
+                        classify_tier(dt_str, unix_ts)
+                    )
+        else:
+            api_status["snapmap"] = f"رمز الاتصال {pl_res.status_code}"
+    except Exception as e:
+        api_status["snapmap"] = "فحص الويب البديل"
+        print(f"[!] تنبيه Snap Map المباشر: {e}")
+
+def search_dailymotion_direct():
+    """2. فحص محرك Dailymotion الرسمي المباشر بالتاريخ الدقيق (بدون مفتاح)"""
+    print("[*] جاري فحص منصة Dailymotion المباشر...")
+    # من 4 أغسطس إلى 28 أغسطس 2025 بالثواني
+    created_after = 1754254800
+    created_before = 1756425599
+    for term in ["baqi", "البقيع", "بقيع", "baki", "بقیع", "madinah", "المدينة المنورة"]:
+        try:
             params = {
-                "part": "snippet",
-                "type": "video",
-                "q": kw,
-                "publishedAfter": SQUARE_START_ISO,
-                "publishedBefore": END_DATE_ISO,
-                "maxResults": 50,
-                "order": "date",
-                "key": YOUTUBE_API_KEY
+                "search": term,
+                "created_after": created_after,
+                "created_before": created_before,
+                "limit": 50,
+                "fields": "id,title,description,url,thumbnail_480_url,created_time"
             }
-            res = requests.get("https://www.googleapis.com/youtube/v3/search", params=params)
+            res = requests.get("https://api.dailymotion.com/videos", params=params, timeout=10)
             if res.status_code == 200:
-                for item in res.json().get("items", []):
-                    vid_id = item["id"]["videoId"]
-                    snip = item["snippet"]
-                    url = f"https://www.youtube.com/watch?v={vid_id}"
-                    pub = snip.get("publishedAt", "")
-                    thumb = snip.get("thumbnails", {}).get("high", {}).get("url", "")
-                    add_result(url, snip.get("title"), "YouTube", lang, pub, thumb, snip.get("description", ""), classify_tier(pub))
-            time.sleep(0.2)
+                for item in res.json().get("list", []):
+                    c_time = int(item.get("created_time", 0))
+                    dt_str = datetime.fromtimestamp(c_time, tz=AST_TZ).strftime("%Y-%m-%d %H:%M") if c_time else "أغسطس 2025"
+                    add_result(
+                        item.get("url"),
+                        item.get("title"),
+                        "Dailymotion",
+                        f"بحث مباشر ({term})",
+                        dt_str,
+                        item.get("thumbnail_480_url", ""),
+                        item.get("description", ""),
+                        classify_tier(dt_str, c_time)
+                    )
+        except Exception as e:
+            print(f"[!] خطأ Dailymotion: {e}")
+        time.sleep(0.2)
 
-    for kw in CORE_BAQI_TERMS:
+def search_youtube_all():
+    """3. مسح يوتيوب بالإحداثيات ومصفوفة اللغات"""
+    if not YOUTUBE_API_KEY:
+        api_status["youtube"] = "❌ المفتاح غير موجود"
+        return
+
+    api_status["youtube"] = "✅ متصل ويعمل"
+    print("[*] جاري مسح يوتيوب بالإحداثيات واللغات...")
+    for radius in ["300m", "800m", "2000m"]:
         params = {
-            "part": "snippet",
-            "type": "video",
-            "q": kw,
-            "publishedAfter": SQUARE_START_ISO,
-            "publishedBefore": SQUARE_END_ISO,
-            "maxResults": 50,
-            "order": "date",
-            "key": YOUTUBE_API_KEY
+            "part": "snippet", "type": "video",
+            "location": LAT_LON, "locationRadius": radius,
+            "publishedAfter": SQUARE_START_ISO, "publishedBefore": END_DATE_ISO,
+            "maxResults": 50, "order": "date", "key": YOUTUBE_API_KEY
         }
         res = requests.get("https://www.googleapis.com/youtube/v3/search", params=params)
         if res.status_code == 200:
             for item in res.json().get("items", []):
                 vid_id = item["id"]["videoId"]
                 snip = item["snippet"]
-                url = f"https://www.youtube.com/watch?v={vid_id}"
                 pub = snip.get("publishedAt", "")
                 thumb = snip.get("thumbnails", {}).get("high", {}).get("url", "")
-                add_result(url, snip.get("title"), "YouTube", "مسح المربع (4-8 أغسطس)", pub, thumb, snip.get("description", ""), classify_tier(pub))
-        time.sleep(0.2)
+                add_result(
+                    f"https://www.youtube.com/watch?v={vid_id}",
+                    snip.get("title"), "YouTube", f"إحداثيات ({radius})",
+                    pub, thumb, snip.get("description", ""), classify_tier(pub)
+                )
+        elif res.status_code != 200:
+            api_status["youtube"] = f"⚠️ تنبيه ({res.status_code})"
 
-def run_serper_web(dork_query, lang_label):
-    headers = {"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"}
-    payload = json.dumps({"q": dork_query, "num": 30})
-    try:
-        res = requests.post("https://google.serper.dev/search", headers=headers, data=payload, timeout=15)
-        if res.status_code != 200:
-            return
-        for item in res.json().get("organic", []):
-            link = item.get("link", "")
-            title = item.get("title", "")
-            snippet = item.get("snippet", "")
-            date_str = item.get("date", "ضمن نطاق البحث")
-            unix_ts = 0
-            platform = detect_platform_name(link)
-
-            if platform == "TikTok":
-                tt_date, unix_ts = decode_tiktok_timestamp(link)
-                if tt_date:
-                    date_str = f"وقت الرفع الدقيق: {tt_date}"
-                    if unix_ts < 1754254800:
-                        continue
-
-            tier = classify_tier(date_str + " " + snippet, unix_ts)
-            add_result(link, title, platform, lang_label, date_str, "", snippet, tier)
-    except Exception as e:
-        print(f"[!] خطأ في طلب البحث: {e}")
-
-def run_serper_videos(video_query, lang_label):
-    """استخدام محرك Google Videos المباشر لجلب الفيديوهات مع صورها المصغرة من كافة المنصات"""
-    headers = {"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"}
-    payload = json.dumps({"q": video_query, "num": 30})
-    try:
-        res = requests.post("https://google.serper.dev/videos", headers=headers, data=payload, timeout=15)
-        if res.status_code != 200:
-            return
-        for item in res.json().get("videos", []):
-            link = item.get("link", "")
-            title = item.get("title", "")
-            snippet = item.get("snippet", "")
-            date_str = item.get("date", "ضمن نطاق البحث")
-            thumb = item.get("imageUrl", "")
-            unix_ts = 0
-            platform = detect_platform_name(link)
-
-            if platform == "TikTok":
-                tt_date, unix_ts = decode_tiktok_timestamp(link)
-                if tt_date:
-                    date_str = f"وقت الرفع الدقيق: {tt_date}"
-                    if unix_ts < 1754254800:
-                        continue
-
-            tier = classify_tier(date_str + " " + title, unix_ts)
-            add_result(link, title, platform, lang_label, date_str, thumb, snippet, tier)
-    except Exception as e:
-        print(f"[!] خطأ في طلب الفيديو: {e}")
-
-def search_isolated_platforms():
-    """3. المسح المعزول لكل منصة على حدة (Snapchat, VK, OK.ru, Telegram, X, Likee, Kwai)"""
-    if not SERPER_API_KEY:
-        return
-    print("[*] 3/5 جاري المسح المستقل والمعزول لمنصات: Snapchat, VK, OK.ru, Telegram, X, Likee, Kwai...")
-
-    # فحص المنصات التي كانت مظلومة في الجولة الأولى بشكل مستقل تماماً
-    rare_platforms = ["Snapchat", "VK_OK", "Telegram", "X", "ShortVideo_Other"]
-    for plat_key in rare_platforms:
-        site_rule = ISOLATED_PLATFORMS[plat_key]
-        for term in CORE_BAQI_TERMS:
-            # بحث داخل نافذة أغسطس 2025
-            dork_aug = f'({site_rule}) "{term}" after:2025-08-03 before:2025-09-01'
-            run_serper_web(dork_aug, f"مسح مستقل ({plat_key})")
-            time.sleep(0.25)
-
-            # بحث مفتوح بالكلمات الدقيقة في المنصات النادرة لأن بعضها لا يؤرشف تاريخها في جوجل بدقة
-            dork_general = f'({site_rule}) "{term}" "2025"'
-            run_serper_web(dork_general, f"مسح شامل ({plat_key})")
-            time.sleep(0.25)
-
-    print("[*] 4/5 جاري مسح TikTok و Instagram و Facebook بشكل مفصول لكل لغة...")
-    major_platforms = ["TikTok", "Instagram", "Facebook"]
-    for plat_key in major_platforms:
-        site_rule = ISOLATED_PLATFORMS[plat_key]
-        # مسح أيام المربع 4-9 أغسطس لكل منصة على حدة
-        for term in CORE_BAQI_TERMS:
-            dork_sq = f'({site_rule}) "{term}" after:2025-08-04 before:2025-08-10'
-            run_serper_web(dork_sq, f"مربع البقيع ({plat_key})")
-            time.sleep(0.25)
-
-    # مسح كلمات الدفن بـ 12 لغة عبر محرك الفيديوهات المصور ومحرك الويب
-    print("[*] 5/5 جاري مسح محرك Google Videos المصور بـ 12 لغة...")
     for lang, keywords in BURIAL_QUERIES.items():
         for kw in keywords:
-            v_query = f'"{kw}" after:2025-08-04 before:2025-08-28'
-            run_serper_videos(v_query, lang)
-            time.sleep(0.25)
+            params = {
+                "part": "snippet", "type": "video", "q": kw,
+                "publishedAfter": SQUARE_START_ISO, "publishedBefore": END_DATE_ISO,
+                "maxResults": 50, "order": "date", "key": YOUTUBE_API_KEY
+            }
+            res = requests.get("https://www.googleapis.com/youtube/v3/search", params=params)
+            if res.status_code == 200:
+                for item in res.json().get("items", []):
+                    vid_id = item["id"]["videoId"]
+                    snip = item["snippet"]
+                    pub = snip.get("publishedAt", "")
+                    thumb = snip.get("thumbnails", {}).get("high", {}).get("url", "")
+                    add_result(
+                        f"https://www.youtube.com/watch?v={vid_id}",
+                        snip.get("title"), "YouTube", lang,
+                        pub, thumb, snip.get("description", ""), classify_tier(pub)
+                    )
+            time.sleep(0.15)
+
+def serper_request(query, label, tbs=None, endpoint="search"):
+    """إرسال طلب نظيف ومباشر إلى Serper بدون أقواس معقدة"""
+    if not SERPER_API_KEY:
+        return 0
+    headers = {"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"}
+    payload_dict = {"q": query, "num": 40}
+    if tbs:
+        payload_dict["tbs"] = tbs
+
+    count_added = 0
+    try:
+        res = requests.post(f"https://google.serper.dev/{endpoint}", headers=headers, json=payload_dict, timeout=15)
+        if res.status_code == 200:
+            api_status["serper"] = "✅ متصل ويعمل"
+            data = res.json()
+            items = data.get("organic", []) if endpoint == "search" else data.get("videos", [])
+            for item in items:
+                link = item.get("link", "")
+                title = item.get("title", "")
+                snippet = item.get("snippet", "")
+                date_str = item.get("date", "أغسطس 2025")
+                thumb = item.get("imageUrl", "")
+                unix_ts = 0
+                platform = detect_platform_name(link)
+
+                if platform == "TikTok":
+                    tt_date, unix_ts = decode_tiktok_timestamp(link)
+                    if tt_date:
+                        date_str = f"وقت الرفع الدقيق: {tt_date}"
+                        # نقبل الفيديوهات من أول أغسطس 2025 فصاعداً
+                        if unix_ts < 1754000000:
+                            continue
+
+                tier = classify_tier(f"{date_str} {title} {snippet}", unix_ts)
+                add_result(link, title, platform, label, date_str, thumb, snippet, tier)
+                count_added += 1
+        else:
+            api_status["serper"] = f"❌ خطأ مفتاح Serper (رمز {res.status_code})"
+            print(f"[!] خطأ من Serper رمز {res.status_code}: {res.text[:120]}")
+    except Exception as e:
+        print(f"[!] استثناء في اتصال Serper: {e}")
+    return count_added
+
+def search_all_social_deep():
+    """4. المسح المفصول والعميق لكل منصة (TikTok, Snapchat, Instagram, FB, VK, Telegram, X, Likee)"""
+    if not SERPER_API_KEY:
+        api_status["serper"] = "❌ المفتاح غير مضاف في Secrets"
+        print("[!] SERPER_API_KEY غير موجود!")
+        return
+
+    print("[*] جاري المسح العميق لمنصات التواصل عبر Serper...")
+    # نطاق شهر أغسطس وسبتمبر 2025 في جوجل
+    aug_tbs = "cdr:1,cd_min:8/3/2025,cd_max:9/5/2025"
+
+    # أ) تقنية صيد البصمة الزمنية لتيك توك (أرقام 7534 و 7535 و 7536 تعني 3-9 أغسطس 2025 حتمياً)
+    print("[*] تشغيل رادار البصمة الزمنية لتيك توك (7534 / 7535 / 7536)...")
+    for prefix in ["7534", "7535", "7536"]:
+        for term in CORE_BAQI_TERMS:
+            q = f"site:tiktok.com inurl:{prefix} {term}"
+            serper_request(q, f"بصمة تيك توك ({prefix})", tbs=None)
+            time.sleep(0.2)
+
+    # ب) مسح كل منصة على حدة باستعلام بسيط ونظيف بدون أقواس معقدة
+    single_sites = [
+        ("TikTok", "site:tiktok.com"),
+        ("Snapchat", "site:snapchat.com"),
+        ("Instagram", "site:instagram.com"),
+        ("Facebook", "site:facebook.com"),
+        ("VK", "site:vk.com"),
+        ("Telegram", "site:t.me"),
+        ("X", "site:x.com"),
+        ("Likee_Kwai", "site:likee.video"),
+        ("Likee_Kwai", "site:kwai.com")
+    ]
+
+    for plat_name, site_op in single_sites:
+        print(f"[*] فحص منصة {plat_name} بشكل منفصل...")
+        for term in CORE_BAQI_TERMS:
+            # 1. بحث مفلتر بتاريخ أغسطس 2025
+            serper_request(f"{site_op} {term}", f"{plat_name} (أغسطس)", tbs=aug_tbs)
+            time.sleep(0.2)
+            # 2. بحث بكلمة 2025 لاقتناص الفيديوهات التي لم يؤرشف جوجل تاريخها
+            serper_request(f"{site_op} {term} 2025", f"{plat_name} (شامل)", tbs=None)
+            time.sleep(0.2)
+
+    # ج) مسح كلمات الدفن بجميع اللغات في تيك توك وإنستغرام وفيسبوك وسناب شات
+    for lang, keywords in BURIAL_QUERIES.items():
+        for kw in keywords:
+            for site_op in ["site:tiktok.com", "site:instagram.com", "site:facebook.com", "site:snapchat.com", "site:vk.com", "site:t.me"]:
+                serper_request(f"{site_op} {kw}", lang, tbs=aug_tbs)
+                time.sleep(0.18)
 
 def generate_html_report():
-    """بناء لوحة نتائج احترافية مع عدادات لكل منصة، شريط بحث فوري، وشارة للجديد"""
+    """بناء لوحة النتائج مع أزرار ثابتة لجميع المنصات وخريطة سناب شات المباشرة"""
     sorted_items = sorted(
         results_db.values(),
         key=lambda x: (x.get("tier", 3), not x.get("is_new", False), x.get("published_at", ""))
     )
 
-    platform_counts = {}
+    platform_counts = {p: 0 for p in ALL_PLATFORMS_ORDER}
     tier1_count = 0
     tier2_count = 0
     new_count = 0
@@ -372,10 +412,12 @@ def generate_html_report():
         if item.get("is_new"):
             new_count += 1
 
-    # إنشاء أزرار ديناميكية لكل منصة موجودة
+    # إظهار أزرار جميع المنصات بشكل دائم مع تمييز المنصات التي تحتوي على نتائج
     plat_buttons_html = ""
-    for plat, count in sorted(platform_counts.items(), key=lambda x: -x[1]):
-        plat_buttons_html += f'<button class="filter-btn" onclick="filterByPlatform(\'{plat}\', this)">{plat} ({count})</button>\n'
+    for plat in ALL_PLATFORMS_ORDER:
+        count = platform_counts.get(plat, 0)
+        btn_style = 'style="border:1px solid #38bdf8;"' if count > 0 else 'style="opacity:0.65;"'
+        plat_buttons_html += f'<button class="filter-btn" {btn_style} onclick="filterByPlatform(\'{plat}\', this)">{plat} ({count})</button>\n'
 
     cards_html = ""
     for item in sorted_items:
@@ -419,6 +461,8 @@ def generate_html_report():
         </div>
         """
 
+    snap_map_url = f"https://map.snapchat.com/@{LAT},{LON},18.00z"
+
     html_template = """<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -428,11 +472,14 @@ def generate_html_report():
     <style>
         body { font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 20px; }
         .header { max-width: 1280px; margin: 0 auto 20px; background: #1e293b; padding: 20px; border-radius: 14px; border: 1px solid #334155; }
-        .stats-bar { display: flex; gap: 15px; flex-wrap: wrap; margin: 12px 0; padding: 12px; background: #0f172a; border-radius: 10px; font-size: 14px; }
+        .stats-bar { display: flex; gap: 15px; flex-wrap: wrap; margin: 10px 0; padding: 12px; background: #0f172a; border-radius: 10px; font-size: 14px; }
+        .api-bar { display: flex; gap: 15px; flex-wrap: wrap; margin: 8px 0; padding: 10px 14px; background: #172554; border: 1px solid #1d4ed8; border-radius: 10px; font-size: 13px; align-items: center; }
+        .snap-btn { background: #eab308; color: #000; text-decoration: none; padding: 7px 14px; border-radius: 8px; font-weight: bold; font-size: 13px; margin-right: auto; }
+        .snap-btn:hover { background: #facc15; }
         .search-box { width: 100%; padding: 12px 15px; border-radius: 8px; border: 1px solid #475569; background: #0f172a; color: #fff; font-size: 15px; margin-top: 10px; box-sizing: border-box; }
-        .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+        .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
         .filter-btn { background: #334155; color: #fff; border: none; padding: 8px 13px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 13px; transition: 0.15s; }
-        .filter-btn.active, .filter-btn:hover { background: #2563eb; }
+        .filter-btn.active, .filter-btn:hover { background: #2563eb; opacity: 1 !important; }
         .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 18px; max-width: 1280px; margin: 0 auto; }
         .card { background: #1e293b; border-radius: 12px; overflow: hidden; border: 1px solid #334155; display: flex; flex-direction: column; }
         .tier-1 { border: 2px solid #22c55e; box-shadow: 0 0 15px rgba(34, 197, 94, 0.25); }
@@ -460,6 +507,12 @@ def generate_html_report():
 <body>
     <div class="header">
         <h2>رادار تنقيب البقيع الشامل (الثلاثاء 5 أغسطس 2025 / 11 صفر 1447 هـ)</h2>
+        <div class="api-bar">
+            <span>📡 YouTube API: <strong>__YT_STATUS__</strong></span>
+            <span>🌐 Serper Multi-Platform API: <strong>__SERPER_STATUS__</strong></span>
+            <span>👻 رادار Snap Map: <strong>__SNAP_STATUS__</strong></span>
+            <a href="__SNAP_MAP_URL__" target="_blank" rel="noopener" class="snap-btn">🗺️ فتح خريطة السناب فوق إحداثيات القبر مباشرة ↗</a>
+        </div>
         <div class="stats-bar">
             <span>📦 الإجمالي التراكمي: <strong>__TOTAL_COUNT__</strong></span>
             <span>🆕 مكتشف في هذه الجولة: <strong>__NEW_COUNT__</strong></span>
@@ -513,6 +566,10 @@ def generate_html_report():
 
     final_html = (
         html_template
+        .replace("__YT_STATUS__", api_status["youtube"])
+        .replace("__SERPER_STATUS__", api_status["serper"])
+        .replace("__SNAP_STATUS__", api_status["snapmap"])
+        .replace("__SNAP_MAP_URL__", snap_map_url)
         .replace("__TOTAL_COUNT__", str(len(results_db)))
         .replace("__NEW_COUNT__", str(new_count))
         .replace("__TIER1_COUNT__", str(tier1_count))
@@ -529,7 +586,8 @@ def generate_html_report():
 
 if __name__ == "__main__":
     load_previous_results()
-    search_youtube_geo()
-    search_youtube_keywords()
-    search_isolated_platforms()
+    search_snap_map_direct()
+    search_dailymotion_direct()
+    search_youtube_all()
+    search_all_social_deep()
     generate_html_report()
